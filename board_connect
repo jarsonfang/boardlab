@@ -7,6 +7,8 @@ OPENLAB_TOPDIR=/usr/local/openlab
 OPENLAB_CONF_DIR=$OPENLAB_TOPDIR/openlab_conf
 
 USER="`whoami`"
+START_TIME=
+END_TIME=
 
 #############################################################################
 # Global Variable
@@ -24,6 +26,15 @@ BOARD_INDEX=
 . $OPENLAB_TOPDIR/Include/telnetop.sh
 . $OPENLAB_TOPDIR/Include/bmcop.sh
 . $OPENLAB_TOPDIR/Include/board_serial_op.sh
+
+#############################################################################
+# trap_func
+#############################################################################
+trap_func()
+{
+	local END_TIME=$(date +%Y/%m/%d\ %H:%M:%S | sed 's/\//\\\//g')
+	flock -x /tmp/login_records.csv sed -i "s/$BOARD_NO,$USER,$START_TIME/&,$END_TIME/g" /tmp/login_records.csv
+}
 
 #############################################################################
 # Usage
@@ -131,5 +142,18 @@ board_file_prepare $BOARD_NO
 board_type=$(get_board_type $BOARD_NO)
 board_connect_cmd=$(get_board_connect_cmd $BOARD_NO)
 echo -e "\033[32mConnected to board: No=$BOARD_NO, type=$board_type.\033[0m"
-exec $board_connect_cmd
 
+START_TIME=`date +%Y/%m/%d\ %H:%M:%S`
+flock -x /tmp/login_records.csv echo "$BOARD_NO,$USER,$START_TIME" >> /tmp/login_records.csv
+START_TIME=$(echo "$START_TIME" | sed 's/\//\\\//g')
+
+trap 'trap_func; exit 0' SIGHUP
+
+$board_connect_cmd
+connect_result=$?
+if [ $connect_result -eq 0 ] || [ $connect_result -eq 137 ]; then
+	END_TIME=$(date +%Y/%m/%d\ %H:%M:%S | sed 's/\//\\\//g')
+	flock -x /tmp/login_records.csv sed -i "s/$BOARD_NO,$USER,$START_TIME/&,$END_TIME/g" /tmp/login_records.csv
+else
+	flock -x /tmp/login_records.csv sed -i "/$BOARD_NO,$USER,$START_TIME/d" /tmp/login_records.csv
+fi
